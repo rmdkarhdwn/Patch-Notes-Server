@@ -1,6 +1,7 @@
 import 'dart:convert';
+
 import 'package:dart_frog/dart_frog.dart';
-// 변경 이유: create 라우트도 공통 posts 저장소를 써야 목록/상세/삭제와 데이터가 일치함
+// 변경 이유: create 결과를 파일에 저장해 서버 재시작 뒤에도 유지
 import '_posts_data.dart';
 
 Future<Response> onRequest(RequestContext context) async {
@@ -18,7 +19,10 @@ Future<Response> onRequest(RequestContext context) async {
     'title': (data['title'] ?? '') as String,
     'summary': (data['summary'] ?? '') as String,
   };
+  final posts = await loadPosts();
   posts.add(newPost);
+  await savePosts(posts);
+
   return Response.json(
     body: {
       'success': true,
