@@ -5,9 +5,23 @@ import 'package:dart_frog/dart_frog.dart';
 import '_posts_data.dart';
 
 Future<Response> onRequest(RequestContext context, String id) async {
+  final method = context.request.method;
+  if (method != HttpMethod.get &&
+      method != HttpMethod.put &&
+      method != HttpMethod.delete) {
+    return Response.json(
+      statusCode: 405,
+      headers: {'Allow': 'GET, PUT, DELETE'},
+      body: {
+        'success': false,
+        'message': 'GET, PUT, DELETE만 허용',
+      },
+    );
+  }
+
   final posts = await loadPosts();
 
-  if (context.request.method == HttpMethod.put) {
+  if (method == HttpMethod.put) {
     final body = await context.request.body();
     Map<String, dynamic> data;
     try {
@@ -74,7 +88,7 @@ Future<Response> onRequest(RequestContext context, String id) async {
       },
     );
   }
-  if (context.request.method == HttpMethod.delete) {
+  if (method == HttpMethod.delete) {
     posts.removeWhere((p) => p['id'].toString() == id);
     await savePosts(posts);
     return Response.json(

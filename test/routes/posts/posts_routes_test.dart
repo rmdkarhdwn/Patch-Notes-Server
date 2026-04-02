@@ -182,6 +182,21 @@ void main() {
       expect(response.statusCode, equals(HttpStatus.notFound));
       expect(body['success'], isFalse);
     });
+
+    test('returns 405 for unsupported method.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.post);
+      when(() => context.request).thenReturn(request);
+
+      final response = await post_by_id_route.onRequest(context, '1');
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.methodNotAllowed));
+      expect(response.headers['Allow'], equals('GET, PUT, DELETE'));
+      expect(body['success'], isFalse);
+    });
   });
 
   group('PUT /posts/:id', () {
