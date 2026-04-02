@@ -28,6 +28,9 @@ Future<String> _invalidTypeRequestBody(Invocation _) async =>
 Future<String> _emptyValueRequestBody(Invocation _) async =>
     '{"title":"  ","summary":""}';
 
+Map<String, dynamic> _toDynamicMap(Map<String, Object> post) =>
+    Map<String, dynamic>.from(post);
+
 const _initialPosts = <Map<String, Object>>[
   {
     'id': 1,
@@ -41,10 +44,68 @@ const _initialPosts = <Map<String, Object>>[
   },
 ];
 
+Future<List<Map<String, dynamic>>> _fetchPostsForIndexTest() async =>
+    _initialPosts.map(_toDynamicMap).toList();
+
+List<Map<String, dynamic>> _postByIdFakeTable = [];
+
+Future<Map<String, dynamic>?> _fakeFetchPostById(String id) async {
+  final parsedId = int.tryParse(id);
+  if (parsedId == null) {
+    return null;
+  }
+  for (final post in _postByIdFakeTable) {
+    if (post['id'] == parsedId) {
+      return Map<String, dynamic>.from(post);
+    }
+  }
+  return null;
+}
+
+Future<Map<String, dynamic>?> _fakeUpdatePostById(
+  String id,
+  String title,
+  String summary,
+) async {
+  final parsedId = int.tryParse(id);
+  if (parsedId == null) {
+    return null;
+  }
+
+  for (var i = 0; i < _postByIdFakeTable.length; i++) {
+    final post = _postByIdFakeTable[i];
+    if (post['id'] == parsedId) {
+      final updated = <String, dynamic>{
+        'id': parsedId,
+        'title': title,
+        'summary': summary,
+      };
+      _postByIdFakeTable[i] = updated;
+      return Map<String, dynamic>.from(updated);
+    }
+  }
+  return null;
+}
+
+Future<bool> _fakeDeletePostById(String id) async {
+  final parsedId = int.tryParse(id);
+  if (parsedId == null) {
+    return false;
+  }
+  final before = _postByIdFakeTable.length;
+  _postByIdFakeTable.removeWhere((post) => post['id'] == parsedId);
+  return _postByIdFakeTable.length != before;
+}
+
 void main() {
   setUp(() async {
     postsFilePath = 'data/posts_test.json';
     await savePosts(_initialPosts.map(Map<String, Object>.from).toList());
+    posts_index_route.fetchPosts = _fetchPostsForIndexTest;
+    _postByIdFakeTable = _initialPosts.map(_toDynamicMap).toList();
+    post_by_id_route.fetchPostById = _fakeFetchPostById;
+    post_by_id_route.updatePostById = _fakeUpdatePostById;
+    post_by_id_route.deletePostById = _fakeDeletePostById;
   });
 
   tearDown(() async {
@@ -65,6 +126,17 @@ void main() {
 
       final data = body['data'] as List<dynamic>;
       expect(data.length, equals(2));
+    });
+
+    test('returns 500 when db fetch fails.', () async {
+      final context = _MockRequestContext();
+      posts_index_route.fetchPosts = () => throw Exception('db error');
+
+      final response = await posts_index_route.onRequest(context);
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.internalServerError));
+      expect(body['success'], isFalse);
     });
   });
 
@@ -212,12 +284,11 @@ void main() {
       final response = await post_by_id_route.onRequest(context, '1');
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
       final data = body['data'] as Map<String, dynamic>;
-      final savedPosts = await loadPosts();
 
       expect(response.statusCode, equals(HttpStatus.ok));
       expect(body['success'], isTrue);
       expect(data['title'], equals('v1.0.1 핫픽스'));
-      expect(savedPosts.first['title'], equals('v1.0.1 핫픽스'));
+      expect(_postByIdFakeTable.first['title'], equals('v1.0.1 핫픽스'));
     });
 
     test('returns 404 when updating missing post.', () async {
@@ -295,12 +366,11 @@ void main() {
 
       final response = await post_by_id_route.onRequest(context, '1');
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
-      final savedPosts = await loadPosts();
 
       expect(response.statusCode, equals(HttpStatus.ok));
       expect(body['success'], isTrue);
-      expect(savedPosts.where((post) => post['id'] == 1), isEmpty);
-      expect(savedPosts.length, equals(1));
+      expect(_postByIdFakeTable.where((post) => post['id'] == 1), isEmpty);
+      expect(_postByIdFakeTable.length, equals(1));
     });
 
     test('returns 404 when deleting missing post.', () async {

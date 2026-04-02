@@ -1,8 +1,22 @@
 import 'package:dart_frog/dart_frog.dart';
+// posts 단건 조회/수정/삭제 DB 함수.
+import '_db.dart';
 // PUT 입력(JSON) 검증 로직 공통 사용.
 import '_post_input.dart';
-// 게시글 파일 저장소 입출력 함수(load/save).
-import '_posts_data.dart';
+
+typedef PostByIdFetcher = Future<Map<String, dynamic>?> Function(String id);
+typedef PostByIdUpdater =
+    Future<Map<String, dynamic>?> Function(
+      String id,
+      String title,
+      String summary,
+    );
+typedef PostByIdDeleter = Future<bool> Function(String id);
+
+// 테스트에서 DB 대신 가짜 함수로 교체할 수 있도록 열어둔 함수 포인터.
+PostByIdFetcher fetchPostById = fetchPostByIdFromDb;
+PostByIdUpdater updatePostById = updatePostInDb;
+PostByIdDeleter deletePostById = deletePostByIdFromDb;
 
 // /posts/:id 라우트 핸들러.
 Future<Response> onRequest(RequestContext context, String id) async {
@@ -21,70 +35,71 @@ Future<Response> onRequest(RequestContext context, String id) async {
     );
   }
 
-  // 최신 게시글 목록을 파일에서 불러온다.
-  final posts = await loadPosts();
-  final index = posts.indexWhere((post) => post['id'].toString() == id);
-  final hasPost = index != -1;
+  try {
+    if (method == HttpMethod.put) {
+      // 요청 body 검증(JSON 파싱 + title/summary 체크).
+      final inputResult = await parsePostInput(context.request);
+      if (inputResult.error != null) {
+        return inputResult.error!;
+      }
+      final input = inputResult.input!;
 
-  if (method == HttpMethod.put) {
-    // 먼저 대상 존재 여부 확인.
-    if (!hasPost) {
+      // DB UPDATE 실행. 대상이 없으면 null 반환.
+      final updatedPost = await updatePostById(id, input.title, input.summary);
+      if (updatedPost == null) {
+        return Response.json(
+          statusCode: 404,
+          body: {'success': false, 'message': '패치노트 없음'},
+        );
+      }
+
       return Response.json(
-        statusCode: 404,
-        body: {'success': false, 'message': '패치노트 없음'},
+        body: {'success': true, 'data': updatedPost},
       );
     }
 
-    // 요청 body 검증(JSON 파싱 + title/summary 체크).
-    final inputResult = await parsePostInput(context.request);
-    if (inputResult.error != null) {
-      return inputResult.error!;
+    if (method == HttpMethod.delete) {
+      // DB DELETE 실행. 삭제된 행이 없으면 404.
+      final deleted = await deletePostById(id);
+      if (!deleted) {
+        return Response.json(
+          statusCode: 404,
+          body: {'success': false, 'message': '패치노트 없음'},
+        );
+      }
+
+      return Response.json(
+        body: {
+          'success': true,
+          'message': '삭제완료',
+        },
+      );
     }
-    final input = inputResult.input!;
 
-    // 해당 글을 새 데이터로 교체.
-    final oldPost = posts[index];
-    final updatePost = <String, Object>{
-      'id': oldPost['id']!,
-      'title': input.title,
-      'summary': input.summary,
-    };
-    posts[index] = updatePost;
-    await savePosts(posts);
-    return Response.json(
-      body: {'success': true, 'data': updatePost},
-    );
-  }
-
-  // GET/DELETE에서도 먼저 대상 존재 여부를 체크.
-  if (!hasPost) {
-    return Response.json(
-      statusCode: 404,
-      body: {
-        'success': false,
-        'message': '패치노트 없음',
-      },
-    );
-  }
-
-  if (method == HttpMethod.delete) {
-    // 해당 글 삭제 후 파일 저장.
-    posts.removeAt(index);
-    await savePosts(posts);
+    // method == GET
+    final post = await fetchPostById(id);
+    if (post == null) {
+      return Response.json(
+        statusCode: 404,
+        body: {
+          'success': false,
+          'message': '패치노트 없음',
+        },
+      );
+    }
     return Response.json(
       body: {
         'success': true,
-        'message': '삭제완료',
+        'data': post,
+      },
+    );
+  } catch (_) {
+    return Response.json(
+      statusCode: 500,
+      body: {
+        'success': false,
+        'message': 'DB 작업 실패',
       },
     );
   }
-
-  // method == GET
-  final post = posts[index];
-  return Response.json(
-    body: {
-      'success': true,
-      'data': post,
-    },
-  );
 }
