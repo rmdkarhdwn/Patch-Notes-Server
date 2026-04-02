@@ -29,6 +29,24 @@ Future<List<Map<String, dynamic>>> fetchPostsFromDb() async {
   }
 }
 
+// 새 게시글을 DB에 생성한다.
+Future<Map<String, dynamic>> createPostInDb(
+  String title,
+  String summary,
+) async {
+  final conn = await _openConnection();
+  try {
+    final result = await conn.execute(
+      r'INSERT INTO posts (title, summary) VALUES ($1, $2) '
+      'RETURNING id, title, summary',
+      parameters: [title, summary],
+    );
+    return result.first.toColumnMap();
+  } finally {
+    await conn.close();
+  }
+}
+
 // id로 게시글 1개를 조회한다. 없으면 null.
 Future<Map<String, dynamic>?> fetchPostByIdFromDb(String id) async {
   final parsedId = int.tryParse(id);

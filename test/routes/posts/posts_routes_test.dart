@@ -6,8 +6,6 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import '../../../routes/posts/[id].dart' as post_by_id_route;
-import '../../../routes/posts/_posts_data.dart';
-import '../../../routes/posts/create.dart' as create_route;
 import '../../../routes/posts/index.dart' as posts_index_route;
 
 class _MockRequestContext extends Mock implements RequestContext {}
@@ -16,17 +14,15 @@ class _MockRequest extends Mock implements Request {}
 
 Future<String> _createRequestBody(Invocation _) async =>
     '{"title":"v1.2.0","summary":"성능 개선"}';
-
-Future<String> _updateRequestBody(Invocation _) async =>
-    '{"title":"v1.0.1 핫픽스","summary":"긴급 패치"}';
-
-Future<String> _missingUpdateRequestBody(Invocation _) async =>
-    '{"title":"x","summary":"y"}';
 Future<String> _invalidJsonRequestBody(Invocation _) async => '{bad-json';
 Future<String> _invalidTypeRequestBody(Invocation _) async =>
     '{"title":123,"summary":true}';
 Future<String> _emptyValueRequestBody(Invocation _) async =>
     '{"title":"  ","summary":""}';
+Future<String> _updateRequestBody(Invocation _) async =>
+    '{"title":"v1.0.1 핫픽스","summary":"긴급 패치"}';
+Future<String> _missingUpdateRequestBody(Invocation _) async =>
+    '{"title":"x","summary":"y"}';
 
 Map<String, dynamic> _toDynamicMap(Map<String, Object> post) =>
     Map<String, dynamic>.from(post);
@@ -44,17 +40,36 @@ const _initialPosts = <Map<String, Object>>[
   },
 ];
 
-Future<List<Map<String, dynamic>>> _fetchPostsForIndexTest() async =>
-    _initialPosts.map(_toDynamicMap).toList();
+List<Map<String, dynamic>> _fakeTable = [];
 
-List<Map<String, dynamic>> _postByIdFakeTable = [];
+Future<List<Map<String, dynamic>>> _fakeFetchPosts() async =>
+    _fakeTable.map(Map<String, dynamic>.from).toList();
+
+Future<Map<String, dynamic>> _fakeCreatePost(
+  String title,
+  String summary,
+) async {
+  final nextId = _fakeTable.isEmpty
+      ? 1
+      : (_fakeTable
+                  .map((post) => post['id'] as int)
+                  .reduce((a, b) => a > b ? a : b) +
+              1);
+  final created = <String, dynamic>{
+    'id': nextId,
+    'title': title,
+    'summary': summary,
+  };
+  _fakeTable.add(created);
+  return Map<String, dynamic>.from(created);
+}
 
 Future<Map<String, dynamic>?> _fakeFetchPostById(String id) async {
   final parsedId = int.tryParse(id);
   if (parsedId == null) {
     return null;
   }
-  for (final post in _postByIdFakeTable) {
+  for (final post in _fakeTable) {
     if (post['id'] == parsedId) {
       return Map<String, dynamic>.from(post);
     }
@@ -72,15 +87,15 @@ Future<Map<String, dynamic>?> _fakeUpdatePostById(
     return null;
   }
 
-  for (var i = 0; i < _postByIdFakeTable.length; i++) {
-    final post = _postByIdFakeTable[i];
+  for (var i = 0; i < _fakeTable.length; i++) {
+    final post = _fakeTable[i];
     if (post['id'] == parsedId) {
       final updated = <String, dynamic>{
         'id': parsedId,
         'title': title,
         'summary': summary,
       };
-      _postByIdFakeTable[i] = updated;
+      _fakeTable[i] = updated;
       return Map<String, dynamic>.from(updated);
     }
   }
@@ -92,44 +107,45 @@ Future<bool> _fakeDeletePostById(String id) async {
   if (parsedId == null) {
     return false;
   }
-  final before = _postByIdFakeTable.length;
-  _postByIdFakeTable.removeWhere((post) => post['id'] == parsedId);
-  return _postByIdFakeTable.length != before;
+  final before = _fakeTable.length;
+  _fakeTable.removeWhere((post) => post['id'] == parsedId);
+  return _fakeTable.length != before;
 }
 
 void main() {
-  setUp(() async {
-    postsFilePath = 'data/posts_test.json';
-    await savePosts(_initialPosts.map(Map<String, Object>.from).toList());
-    posts_index_route.fetchPosts = _fetchPostsForIndexTest;
-    _postByIdFakeTable = _initialPosts.map(_toDynamicMap).toList();
+  setUp(() {
+    _fakeTable = _initialPosts.map(_toDynamicMap).toList();
+
+    posts_index_route.fetchPosts = _fakeFetchPosts;
+    posts_index_route.createPost = _fakeCreatePost;
+
     post_by_id_route.fetchPostById = _fakeFetchPostById;
     post_by_id_route.updatePostById = _fakeUpdatePostById;
     post_by_id_route.deletePostById = _fakeDeletePostById;
   });
 
-  tearDown(() async {
-    final file = File(postsFilePath);
-    if (file.existsSync()) {
-      file.deleteSync();
-    }
-  });
-
   group('GET /posts', () {
     test('returns posts list.', () async {
       final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.get);
+      when(() => context.request).thenReturn(request);
+
       final response = await posts_index_route.onRequest(context);
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
 
       expect(response.statusCode, equals(HttpStatus.ok));
       expect(body['success'], isTrue);
-
-      final data = body['data'] as List<dynamic>;
-      expect(data.length, equals(2));
+      expect((body['data'] as List).length, equals(2));
     });
 
     test('returns 500 when db fetch fails.', () async {
       final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.get);
+      when(() => context.request).thenReturn(request);
       posts_index_route.fetchPosts = () => throw Exception('db error');
 
       final response = await posts_index_route.onRequest(context);
@@ -140,18 +156,19 @@ void main() {
     });
   });
 
-  group('POST /posts/create', () {
-    test('returns 405 for non-POST method.', () async {
+  group('POST /posts', () {
+    test('returns 405 for non-POST/GET method.', () async {
       final context = _MockRequestContext();
       final request = _MockRequest();
 
-      when(() => request.method).thenReturn(HttpMethod.get);
+      when(() => request.method).thenReturn(HttpMethod.put);
       when(() => context.request).thenReturn(request);
 
-      final response = await create_route.onRequest(context);
+      final response = await posts_index_route.onRequest(context);
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
 
       expect(response.statusCode, equals(HttpStatus.methodNotAllowed));
+      expect(response.headers['Allow'], equals('GET, POST'));
       expect(body['success'], isFalse);
     });
 
@@ -164,15 +181,14 @@ void main() {
       when(() => request.body()).thenAnswer(_createRequestBody);
       when(() => context.request).thenReturn(request);
 
-      final response = await create_route.onRequest(context);
+      final response = await posts_index_route.onRequest(context);
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
       final data = body['data'] as Map<String, dynamic>;
-      final savedPosts = await loadPosts();
 
       expect(response.statusCode, equals(HttpStatus.ok));
       expect(body['success'], isTrue);
       expect(data['title'], equals('v1.2.0'));
-      expect(savedPosts.length, equals(3));
+      expect(_fakeTable.length, equals(3));
     });
 
     test('returns 400 for invalid JSON.', () async {
@@ -184,7 +200,7 @@ void main() {
       when(() => request.body()).thenAnswer(_invalidJsonRequestBody);
       when(() => context.request).thenReturn(request);
 
-      final response = await create_route.onRequest(context);
+      final response = await posts_index_route.onRequest(context);
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
 
       expect(response.statusCode, equals(HttpStatus.badRequest));
@@ -200,7 +216,7 @@ void main() {
       when(() => request.body()).thenAnswer(_invalidTypeRequestBody);
       when(() => context.request).thenReturn(request);
 
-      final response = await create_route.onRequest(context);
+      final response = await posts_index_route.onRequest(context);
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
 
       expect(response.statusCode, equals(HttpStatus.badRequest));
@@ -216,7 +232,7 @@ void main() {
       when(() => request.body()).thenAnswer(_emptyValueRequestBody);
       when(() => context.request).thenReturn(request);
 
-      final response = await create_route.onRequest(context);
+      final response = await posts_index_route.onRequest(context);
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
 
       expect(response.statusCode, equals(HttpStatus.badRequest));
@@ -288,7 +304,7 @@ void main() {
       expect(response.statusCode, equals(HttpStatus.ok));
       expect(body['success'], isTrue);
       expect(data['title'], equals('v1.0.1 핫픽스'));
-      expect(_postByIdFakeTable.first['title'], equals('v1.0.1 핫픽스'));
+      expect(_fakeTable.first['title'], equals('v1.0.1 핫픽스'));
     });
 
     test('returns 404 when updating missing post.', () async {
@@ -369,8 +385,8 @@ void main() {
 
       expect(response.statusCode, equals(HttpStatus.ok));
       expect(body['success'], isTrue);
-      expect(_postByIdFakeTable.where((post) => post['id'] == 1), isEmpty);
-      expect(_postByIdFakeTable.length, equals(1));
+      expect(_fakeTable.where((post) => post['id'] == 1), isEmpty);
+      expect(_fakeTable.length, equals(1));
     });
 
     test('returns 404 when deleting missing post.', () async {

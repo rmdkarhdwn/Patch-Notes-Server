@@ -15,7 +15,7 @@ dart_frog dev
 ## Posts API
 
 - `GET /posts`: 게시글 목록 조회
-- `POST /posts/create`: 게시글 생성
+- `POST /posts`: 게시글 생성
 - `GET /posts/:id`: 게시글 단건 조회
 - `PUT /posts/:id`: 게시글 수정
 - `DELETE /posts/:id`: 게시글 삭제
@@ -24,7 +24,7 @@ dart_frog dev
 ### Create
 
 ```bash
-curl -X POST http://localhost:8080/posts/create \
+curl -X POST http://localhost:8080/posts \
   -H "Content-Type: application/json" \
   -d '{"title":"v1.2.0","summary":"성능 개선"}'
 ```
