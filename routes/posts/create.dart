@@ -1,59 +1,39 @@
-import 'dart:convert';
-
 import 'package:dart_frog/dart_frog.dart';
-// 변경 이유: create 결과를 파일에 저장해 서버 재시작 뒤에도 유지
+// POST body(title/summary) 검증 로직 공통 사용.
+import '_post_input.dart';
+// 게시글 파일 저장소 입출력 함수(load/save).
 import '_posts_data.dart';
 
+// /posts/create 라우트 핸들러.
 Future<Response> onRequest(RequestContext context) async {
+  // 이 엔드포인트는 POST만 허용.
   if (context.request.method != HttpMethod.post) {
     return Response.json(
       statusCode: 405,
       body: {'success': false, 'message': 'POST만 허용'},
     );
   }
-  final body = await context.request.body();
 
-  Map<String, dynamic> data;
-  try {
-    final decoded = jsonDecode(body);
-    if (decoded is! Map<String, dynamic>) {
-      return Response.json(
-        statusCode: 400,
-        body: {'success': false, 'message': 'JSON 객체 형식이어야 합니다.'},
-      );
-    }
-    data = decoded;
-  } on FormatException {
-    return Response.json(
-      statusCode: 400,
-      body: {'success': false, 'message': '잘못된 JSON 형식입니다.'},
-    );
+  // JSON 파싱 + 타입/필수값 검증.
+  final inputResult = await parsePostInput(context.request);
+  if (inputResult.error != null) {
+    return inputResult.error!;
   }
+  final input = inputResult.input!;
 
-  final title = data['title'];
-  final summary = data['summary'];
-  if (title is! String || summary is! String) {
-    return Response.json(
-      statusCode: 400,
-      body: {'success': false, 'message': 'title, summary는 문자열이어야 합니다.'},
-    );
-  }
-  if (title.trim().isEmpty || summary.trim().isEmpty) {
-    return Response.json(
-      statusCode: 400,
-      body: {'success': false, 'message': 'title, summary는 필수값입니다.'},
-    );
-  }
-
+  // 새 게시글 생성.
   final newPost = <String, Object>{
     'id': DateTime.now().millisecondsSinceEpoch,
-    'title': title.trim(),
-    'summary': summary.trim(),
+    'title': input.title,
+    'summary': input.summary,
   };
+
+  // 기존 목록을 읽고 새 글을 추가한 뒤 파일에 저장.
   final posts = await loadPosts();
   posts.add(newPost);
   await savePosts(posts);
 
+  // 생성 결과 반환.
   return Response.json(
     body: {
       'success': true,

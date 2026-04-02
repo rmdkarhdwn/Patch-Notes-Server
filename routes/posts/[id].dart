@@ -1,10 +1,12 @@
-import 'dart:convert';
-
 import 'package:dart_frog/dart_frog.dart';
-// 변경 이유: 수정/삭제 결과를 파일에 저장해 서버 재시작 뒤에도 유지
+// PUT 입력(JSON) 검증 로직 공통 사용.
+import '_post_input.dart';
+// 게시글 파일 저장소 입출력 함수(load/save).
 import '_posts_data.dart';
 
+// /posts/:id 라우트 핸들러.
 Future<Response> onRequest(RequestContext context, String id) async {
+  // 메서드 정책: GET, PUT, DELETE만 허용.
   final method = context.request.method;
   if (method != HttpMethod.get &&
       method != HttpMethod.put &&
@@ -19,54 +21,33 @@ Future<Response> onRequest(RequestContext context, String id) async {
     );
   }
 
+  // 최신 게시글 목록을 파일에서 불러온다.
   final posts = await loadPosts();
+  final index = posts.indexWhere((post) => post['id'].toString() == id);
+  final hasPost = index != -1;
 
   if (method == HttpMethod.put) {
-    final body = await context.request.body();
-    Map<String, dynamic> data;
-    try {
-      final decoded = jsonDecode(body);
-      if (decoded is! Map<String, dynamic>) {
-        return Response.json(
-          statusCode: 400,
-          body: {'success': false, 'message': 'JSON 객체 형식이어야 합니다.'},
-        );
-      }
-      data = decoded;
-    } on FormatException {
-      return Response.json(
-        statusCode: 400,
-        body: {'success': false, 'message': '잘못된 JSON 형식입니다.'},
-      );
-    }
-
-    final title = data['title'];
-    final summary = data['summary'];
-    if (title is! String || summary is! String) {
-      return Response.json(
-        statusCode: 400,
-        body: {'success': false, 'message': 'title, summary는 문자열이어야 합니다.'},
-      );
-    }
-    if (title.trim().isEmpty || summary.trim().isEmpty) {
-      return Response.json(
-        statusCode: 400,
-        body: {'success': false, 'message': 'title, summary는 필수값입니다.'},
-      );
-    }
-
-    final index = posts.indexWhere((p) => p['id'].toString() == id);
-    if (index == -1) {
+    // 먼저 대상 존재 여부 확인.
+    if (!hasPost) {
       return Response.json(
         statusCode: 404,
         body: {'success': false, 'message': '패치노트 없음'},
       );
     }
+
+    // 요청 body 검증(JSON 파싱 + title/summary 체크).
+    final inputResult = await parsePostInput(context.request);
+    if (inputResult.error != null) {
+      return inputResult.error!;
+    }
+    final input = inputResult.input!;
+
+    // 해당 글을 새 데이터로 교체.
     final oldPost = posts[index];
     final updatePost = <String, Object>{
       'id': oldPost['id']!,
-      'title': title.trim(),
-      'summary': summary.trim(),
+      'title': input.title,
+      'summary': input.summary,
     };
     posts[index] = updatePost;
     await savePosts(posts);
@@ -75,11 +56,8 @@ Future<Response> onRequest(RequestContext context, String id) async {
     );
   }
 
-  final post = posts.firstWhere(
-    (p) => p['id'].toString() == id,
-    orElse: () => {},
-  );
-  if (post.isEmpty) {
+  // GET/DELETE에서도 먼저 대상 존재 여부를 체크.
+  if (!hasPost) {
     return Response.json(
       statusCode: 404,
       body: {
@@ -88,8 +66,10 @@ Future<Response> onRequest(RequestContext context, String id) async {
       },
     );
   }
+
   if (method == HttpMethod.delete) {
-    posts.removeWhere((p) => p['id'].toString() == id);
+    // 해당 글 삭제 후 파일 저장.
+    posts.removeAt(index);
     await savePosts(posts);
     return Response.json(
       body: {
@@ -98,6 +78,9 @@ Future<Response> onRequest(RequestContext context, String id) async {
       },
     );
   }
+
+  // method == GET
+  final post = posts[index];
   return Response.json(
     body: {
       'success': true,
