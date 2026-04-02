@@ -9,7 +9,38 @@ Future<Response> onRequest(RequestContext context, String id) async {
 
   if (context.request.method == HttpMethod.put) {
     final body = await context.request.body();
-    final data = jsonDecode(body) as Map<String, dynamic>;
+    Map<String, dynamic> data;
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) {
+        return Response.json(
+          statusCode: 400,
+          body: {'success': false, 'message': 'JSON 객체 형식이어야 합니다.'},
+        );
+      }
+      data = decoded;
+    } on FormatException {
+      return Response.json(
+        statusCode: 400,
+        body: {'success': false, 'message': '잘못된 JSON 형식입니다.'},
+      );
+    }
+
+    final title = data['title'];
+    final summary = data['summary'];
+    if (title is! String || summary is! String) {
+      return Response.json(
+        statusCode: 400,
+        body: {'success': false, 'message': 'title, summary는 문자열이어야 합니다.'},
+      );
+    }
+    if (title.trim().isEmpty || summary.trim().isEmpty) {
+      return Response.json(
+        statusCode: 400,
+        body: {'success': false, 'message': 'title, summary는 필수값입니다.'},
+      );
+    }
+
     final index = posts.indexWhere((p) => p['id'].toString() == id);
     if (index == -1) {
       return Response.json(
@@ -20,8 +51,8 @@ Future<Response> onRequest(RequestContext context, String id) async {
     final oldPost = posts[index];
     final updatePost = <String, Object>{
       'id': oldPost['id']!,
-      'title': (data['title'] ?? oldPost['title']) as String,
-      'summary': (data['summary'] ?? oldPost['summary']) as String,
+      'title': title.trim(),
+      'summary': summary.trim(),
     };
     posts[index] = updatePost;
     await savePosts(posts);

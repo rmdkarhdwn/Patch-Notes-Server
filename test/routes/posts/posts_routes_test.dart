@@ -22,6 +22,11 @@ Future<String> _updateRequestBody(Invocation _) async =>
 
 Future<String> _missingUpdateRequestBody(Invocation _) async =>
     '{"title":"x","summary":"y"}';
+Future<String> _invalidJsonRequestBody(Invocation _) async => '{bad-json';
+Future<String> _invalidTypeRequestBody(Invocation _) async =>
+    '{"title":123,"summary":true}';
+Future<String> _emptyValueRequestBody(Invocation _) async =>
+    '{"title":"  ","summary":""}';
 
 const _initialPosts = <Map<String, Object>>[
   {
@@ -97,6 +102,54 @@ void main() {
       expect(data['title'], equals('v1.2.0'));
       expect(savedPosts.length, equals(3));
     });
+
+    test('returns 400 for invalid JSON.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.post);
+      // ignore: unnecessary_lambdas
+      when(() => request.body()).thenAnswer(_invalidJsonRequestBody);
+      when(() => context.request).thenReturn(request);
+
+      final response = await create_route.onRequest(context);
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.badRequest));
+      expect(body['success'], isFalse);
+    });
+
+    test('returns 400 for invalid field types.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.post);
+      // ignore: unnecessary_lambdas
+      when(() => request.body()).thenAnswer(_invalidTypeRequestBody);
+      when(() => context.request).thenReturn(request);
+
+      final response = await create_route.onRequest(context);
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.badRequest));
+      expect(body['success'], isFalse);
+    });
+
+    test('returns 400 for empty required fields.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.post);
+      // ignore: unnecessary_lambdas
+      when(() => request.body()).thenAnswer(_emptyValueRequestBody);
+      when(() => context.request).thenReturn(request);
+
+      final response = await create_route.onRequest(context);
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.badRequest));
+      expect(body['success'], isFalse);
+    });
   });
 
   group('GET /posts/:id', () {
@@ -165,6 +218,54 @@ void main() {
       final body = jsonDecode(await response.body()) as Map<String, dynamic>;
 
       expect(response.statusCode, equals(HttpStatus.notFound));
+      expect(body['success'], isFalse);
+    });
+
+    test('returns 400 for invalid JSON.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.put);
+      // ignore: unnecessary_lambdas
+      when(() => request.body()).thenAnswer(_invalidJsonRequestBody);
+      when(() => context.request).thenReturn(request);
+
+      final response = await post_by_id_route.onRequest(context, '1');
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.badRequest));
+      expect(body['success'], isFalse);
+    });
+
+    test('returns 400 for invalid field types.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.put);
+      // ignore: unnecessary_lambdas
+      when(() => request.body()).thenAnswer(_invalidTypeRequestBody);
+      when(() => context.request).thenReturn(request);
+
+      final response = await post_by_id_route.onRequest(context, '1');
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.badRequest));
+      expect(body['success'], isFalse);
+    });
+
+    test('returns 400 for empty required fields.', () async {
+      final context = _MockRequestContext();
+      final request = _MockRequest();
+
+      when(() => request.method).thenReturn(HttpMethod.put);
+      // ignore: unnecessary_lambdas
+      when(() => request.body()).thenAnswer(_emptyValueRequestBody);
+      when(() => context.request).thenReturn(request);
+
+      final response = await post_by_id_route.onRequest(context, '1');
+      final body = jsonDecode(await response.body()) as Map<String, dynamic>;
+
+      expect(response.statusCode, equals(HttpStatus.badRequest));
       expect(body['success'], isFalse);
     });
   });

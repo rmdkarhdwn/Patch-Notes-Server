@@ -13,11 +13,42 @@ Future<Response> onRequest(RequestContext context) async {
   }
   final body = await context.request.body();
 
-  final data = jsonDecode(body) as Map<String, dynamic>;
+  Map<String, dynamic> data;
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, dynamic>) {
+      return Response.json(
+        statusCode: 400,
+        body: {'success': false, 'message': 'JSON 객체 형식이어야 합니다.'},
+      );
+    }
+    data = decoded;
+  } on FormatException {
+    return Response.json(
+      statusCode: 400,
+      body: {'success': false, 'message': '잘못된 JSON 형식입니다.'},
+    );
+  }
+
+  final title = data['title'];
+  final summary = data['summary'];
+  if (title is! String || summary is! String) {
+    return Response.json(
+      statusCode: 400,
+      body: {'success': false, 'message': 'title, summary는 문자열이어야 합니다.'},
+    );
+  }
+  if (title.trim().isEmpty || summary.trim().isEmpty) {
+    return Response.json(
+      statusCode: 400,
+      body: {'success': false, 'message': 'title, summary는 필수값입니다.'},
+    );
+  }
+
   final newPost = <String, Object>{
     'id': DateTime.now().millisecondsSinceEpoch,
-    'title': (data['title'] ?? '') as String,
-    'summary': (data['summary'] ?? '') as String,
+    'title': title.trim(),
+    'summary': summary.trim(),
   };
   final posts = await loadPosts();
   posts.add(newPost);
